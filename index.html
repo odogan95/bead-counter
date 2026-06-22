@@ -136,6 +136,86 @@
     border:1px solid var(--line);
     display:block;
   }
+  .image-stage{
+    position:relative;
+    width:100%;
+    line-height:0;
+  }
+  .image-stage canvas{
+    pointer-events:none;
+  }
+  .overlay{
+    position:absolute;
+    top:0; left:0;
+    width:100%; height:100%;
+    cursor:crosshair;
+  }
+  .bead-box{
+    position:absolute;
+    border:1.5px solid #8fae7a;
+    border-radius:3px;
+    box-sizing:border-box;
+    transition:opacity .15s, transform .1s;
+  }
+  .bead-box:hover{
+    transform:scale(1.08);
+    z-index:2;
+  }
+  .bead-box.merged{ border-color:#c4685a; }
+  .bead-box.manual{ border-color:#5b8fc7; border-style:dashed; }
+  .bead-box.removed{
+    opacity:0.25;
+    border-style:dotted;
+  }
+  .bead-box .tag{
+    position:absolute;
+    top:-1.1em; left:-1px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.62rem;
+    color:#c4685a;
+    white-space:nowrap;
+  }
+  .stepper{
+    position:absolute;
+    top:-1.35em; left:50%;
+    transform:translateX(-50%);
+    display:flex;
+    align-items:center;
+    gap:1px;
+    background:#1d1a15;
+    border:1px solid #c4685a;
+    border-radius:4px;
+    padding:0px 2px;
+    z-index:3;
+    white-space:nowrap;
+    line-height:1;
+  }
+  .bead-box.edited .stepper{ border-color:#5b8fc7; }
+  .bead-box.edited{ border-color:#5b8fc7; }
+  .step-btn{
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.55rem;
+    line-height:1;
+    color:#e8c468;
+    background:none;
+    border:none;
+    cursor:pointer;
+    padding:1px 2px;
+  }
+  .step-btn:hover{ color:#fff; }
+  .step-count{
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.52rem;
+    color:#f3efe6;
+    min-width:0.9em;
+    text-align:center;
+  }
+  .correct-hint{
+    font-size:0.82rem;
+    color:var(--ink-dim);
+    margin:0.7rem 0 0;
+    text-align:center;
+  }
   .controls{
     margin-top:1.4rem;
     display:flex;
@@ -241,10 +321,15 @@
       <div class="count-label">beads counted</div>
     </div>
     <div class="note" id="noteBox"></div>
-    <canvas id="canvas"></canvas>
+    <div class="image-stage" id="imageStage">
+      <canvas id="canvas"></canvas>
+      <div class="overlay" id="overlay"></div>
+    </div>
+    <p class="correct-hint">Tap a box to remove it · use −/+ on a red cluster to set its real count · tap empty space to add a missed bead</p>
     <div class="legend">
       <span><span class="swatch" style="background:#8fae7a"></span> single bead</span>
       <span><span class="swatch" style="background:#c4685a"></span> merged cluster, estimated</span>
+      <span><span class="swatch" style="background:#5b8fc7"></span> added by you</span>
     </div>
     <div class="controls">
       <label>Sensitivity
@@ -266,6 +351,8 @@ const countNumber = document.getElementById('countNumber');
 const noteBox = document.getElementById('noteBox');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const imageStage = document.getElementById('imageStage');
 const errorBox = document.getElementById('errorBox');
 const threshSlider = document.getElementById('threshSlider');
 const resetBtn = document.getElementById('resetBtn');
@@ -451,36 +538,134 @@ function processImage(img, sliderOffset){
   const median = areas[Math.floor(areas.length/2)];
   const minArea = median*0.22;
   const maxArea = median*1.8;
+  medianBeadSide = Math.sqrt(median); // used later for manually-added boxes
 
-  let count = 0;
-  let merged = 0;
-  ctx.lineWidth = Math.max(1, w/500);
-
+  beadBoxes = [];
+  let boxId = 0;
   for(const c of components){
     if(c.area < minArea) continue; // noise speck
     const bw = c.maxX-c.minX+1, bh = c.maxY-c.minY+1;
     if(c.area > maxArea){
       const est = Math.max(1, Math.round(c.area/median));
-      count += est;
-      merged++;
-      ctx.strokeStyle = '#c4685a';
-      ctx.strokeRect(c.minX, c.minY, bw, bh);
-      ctx.fillStyle = '#c4685a';
-      ctx.font = `${Math.max(10,w/60)}px monospace`;
-      ctx.fillText('x'+est, c.minX, c.minY-3);
+      beadBoxes.push({
+        id: boxId++, type:'merged', est, removed:false,
+        x:c.minX, y:c.minY, w:bw, h:bh
+      });
     } else {
-      count++;
-      ctx.strokeStyle = '#8fae7a';
-      ctx.strokeRect(c.minX, c.minY, bw, bh);
+      beadBoxes.push({
+        id: boxId++, type:'single', est:1, removed:false,
+        x:c.minX, y:c.minY, w:bw, h:bh
+      });
     }
   }
 
-  countNumber.textContent = count;
-  noteBox.innerHTML = merged > 0
-    ? `<strong>${merged} cluster${merged>1?'s':''}</strong> looked like multiple touching beads — counted by estimating from typical bead size. Separate beads more if this seems off.`
-    : `Each box below is one bead the tool found. Check the image against the actual photo.`;
+  imageW = w; imageH = h;
+  renderOverlay();
   resultBox.classList.add('show');
 }
+
+let beadBoxes = [];
+let imageW = 0, imageH = 0;
+let medianBeadSide = 14;
+let manualIdCounter = 100000;
+
+function currentCount(){
+  let total = 0;
+  for(const b of beadBoxes){
+    if(b.removed) continue;
+    total += b.est;
+  }
+  return total;
+}
+
+function updateCountAndNote(){
+  const count = currentCount();
+  countNumber.textContent = count;
+  const mergedActive = beadBoxes.filter(b=>!b.removed && b.type==='merged').length;
+  const manualActive = beadBoxes.filter(b=>!b.removed && b.type==='manual').length;
+  let note = '';
+  if(mergedActive>0){
+    note += `<strong>${mergedActive} cluster${mergedActive>1?'s':''}</strong> looked like multiple touching beads, counted by estimate. `;
+  }
+  if(manualActive>0){
+    note += `<strong>${manualActive}</strong> added by you. `;
+  }
+  if(!note){
+    note = 'Each box is one bead the tool found. Tap a box to remove it, use −/+ on red clusters to fix the count, or tap empty space to add one it missed.';
+  } else {
+    note += 'Use −/+ on a cluster, tap a box to remove it, or tap empty space to add one.';
+  }
+  noteBox.innerHTML = note;
+}
+
+function renderOverlay(){
+  overlay.innerHTML = '';
+  for(const b of beadBoxes){
+    const div = document.createElement('div');
+    div.className = 'bead-box ' + b.type + (b.removed ? ' removed' : '');
+    div.style.left = (b.x/imageW*100) + '%';
+    div.style.top = (b.y/imageH*100) + '%';
+    div.style.width = (b.w/imageW*100) + '%';
+    div.style.height = (b.h/imageH*100) + '%';
+
+    if(b.type==='merged'){
+      if(b.origEst === undefined) b.origEst = b.est;
+      const isEdited = b.est !== b.origEst;
+      div.className += isEdited ? ' edited' : '';
+      const stepper = document.createElement('div');
+      stepper.className = 'stepper';
+      stepper.innerHTML = `<button class="step-btn minus" type="button">−</button><span class="step-count">${b.est}</span><button class="step-btn plus" type="button">+</button>`;
+      stepper.querySelector('.minus').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        b.est = Math.max(0, b.est - 1);
+        b.removed = b.est === 0;
+        renderOverlay();
+      });
+      stepper.querySelector('.plus').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        b.est += 1;
+        b.removed = false;
+        renderOverlay();
+      });
+      div.appendChild(stepper);
+      // box itself toggles fully off/on (skips straight to 0 or restores previous estimate)
+      div.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        if(b.removed){
+          b.removed = false;
+          if(b.est === 0) b.est = b.prevEst || b.origEst || 1;
+        } else {
+          b.prevEst = b.est;
+          b.removed = true;
+          b.est = 0;
+        }
+        renderOverlay();
+      });
+    } else {
+      div.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        b.removed = !b.removed;
+        renderOverlay();
+      });
+    }
+
+    overlay.appendChild(div);
+  }
+  updateCountAndNote();
+}
+
+overlay.addEventListener('click', (e)=>{
+  // only fires if the click wasn't on a bead-box (those call stopPropagation)
+  const rect = overlay.getBoundingClientRect();
+  const px = (e.clientX - rect.left) / rect.width * imageW;
+  const py = (e.clientY - rect.top) / rect.height * imageH;
+  const side = medianBeadSide;
+  beadBoxes.push({
+    id: manualIdCounter++, type:'manual', est:1, removed:false,
+    x: px - side/2, y: py - side/2, w: side, h: side
+  });
+  renderOverlay();
+});
 
 // --- PWA: service worker + install prompt ---
 if ('serviceWorker' in navigator) {
