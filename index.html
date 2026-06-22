@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bead Count — drop a photo, get a number</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#15130f">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BeadCount">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap');
+
+  :root{
+    --ink:#f3efe6;
+    --ink-dim:#a8a195;
+    --bg:#15130f;
+    --bg-raised:#1d1a15;
+    --bead:#e8c468;
+    --bead-dim:#5c4d28;
+    --line:#322c22;
+    --ok:#8fae7a;
+    --err:#c4685a;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:6vh 5vw 8vh;
+  }
+  .wrap{ max-width:760px; width:100%; }
+
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:clamp(2.2rem, 5vw, 3.4rem);
+    line-height:1.05;
+    margin:0 0 0.4rem;
+    letter-spacing:-0.01em;
+  }
+  h1 .accent{ color:var(--bead); font-style:italic; font-weight:500; }
+  .sub{
+    color:var(--ink-dim);
+    font-size:1.05rem;
+    max-width:46ch;
+    margin:0 0 3rem;
+    line-height:1.5;
+  }
+
+  .dropzone{
+    border:1.5px dashed var(--line);
+    border-radius:14px;
+    background:var(--bg-raised);
+    padding:4.5rem 2rem;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .2s, background .2s;
+    position:relative;
+  }
+  .dropzone.drag{
+    border-color:var(--bead);
+    background:#221d14;
+  }
+  .dropzone .label{
+    font-size:1.1rem;
+    color:var(--ink);
+    margin-bottom:0.4rem;
+  }
+  .dropzone .hint{
+    font-size:0.9rem;
+    color:var(--ink-dim);
+  }
+  .dropzone input{ display:none; }
+
+  /* the signature element: a string of beads that fills in as a stand-in progress/identity mark */
+  .bead-string{
+    display:flex;
+    justify-content:center;
+    gap:7px;
+    margin-bottom:1.6rem;
+  }
+  .bead-string span{
+    width:9px; height:9px; border-radius:50%;
+    background:var(--bead-dim);
+    transition:background .25s, transform .25s;
+  }
+  .bead-string span.lit{
+    background:var(--bead);
+    transform:scale(1.15);
+  }
+
+  .result{
+    display:none;
+    margin-top:2.2rem;
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:2rem;
+  }
+  .result.show{ display:block; }
+  .count-row{
+    display:flex;
+    align-items:baseline;
+    gap:1rem;
+    margin-bottom:1.4rem;
+  }
+  .count-number{
+    font-family:'JetBrains Mono', monospace;
+    font-size:3.2rem;
+    font-weight:500;
+    color:var(--bead);
+    line-height:1;
+  }
+  .count-label{
+    color:var(--ink-dim);
+    font-size:1rem;
+  }
+  .note{
+    font-size:0.92rem;
+    color:var(--ink-dim);
+    line-height:1.5;
+    margin-bottom:1.2rem;
+  }
+  .note strong{ color:var(--ink); }
+  canvas{
+    width:100%;
+    border-radius:8px;
+    border:1px solid var(--line);
+    display:block;
+  }
+  .controls{
+    margin-top:1.4rem;
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.7rem;
+    align-items:center;
+  }
+  .controls label{
+    font-size:0.85rem;
+    color:var(--ink-dim);
+    display:flex;
+    align-items:center;
+    gap:0.5rem;
+  }
+  .controls input[type=range]{
+    width:140px;
+    accent-color:var(--bead);
+  }
+  button.reset{
+    font-family:'Inter',sans-serif;
+    font-size:0.85rem;
+    color:var(--ink);
+    background:none;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:0.5rem 1rem;
+    cursor:pointer;
+    margin-left:auto;
+  }
+  button.reset:hover{ border-color:var(--bead); }
+
+  .legend{
+    display:flex;
+    gap:1.2rem;
+    margin-top:0.9rem;
+    font-size:0.82rem;
+    color:var(--ink-dim);
+  }
+  .legend span{ display:inline-flex; align-items:center; gap:0.4rem; }
+  .swatch{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+  .error{
+    display:none;
+    color:var(--err);
+    font-size:0.92rem;
+    margin-top:1rem;
+  }
+  .error.show{ display:block; }
+
+  .install-btn{
+    font-family:'Inter',sans-serif;
+    font-size:0.9rem;
+    font-weight:600;
+    color:var(--bg);
+    background:var(--bead);
+    border:none;
+    border-radius:8px;
+    padding:0.6rem 1.1rem;
+    cursor:pointer;
+    margin-bottom:2.2rem;
+    display:inline-flex;
+    align-items:center;
+    gap:0.5rem;
+    transition:transform .15s;
+  }
+  .install-btn:hover{ transform:translateY(-1px); }
+
+  footer{
+    margin-top:3rem;
+    font-size:0.82rem;
+    color:var(--ink-dim);
+    text-align:center;
+    max-width:46ch;
+    line-height:1.5;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .bead-string span, .dropzone{ transition:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="bead-string" id="beadString" aria-hidden="true"></div>
+
+  <h1>Count your <span class="accent">beads</span>,<br>not your patience.</h1>
+  <p class="sub">Spread them on a dark surface, photograph from above, and drop the image below. Counting happens right in your browser — nothing is uploaded anywhere.</p>
+
+  <button id="installBtn" class="install-btn" style="display:none;">Add to home screen</button>
+
+  <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload a photo of beads">
+    <div class="label" id="dzLabel">Drop a photo here, or click to choose one</div>
+    <div class="hint">JPG or PNG · white/light beads on a dark background work best</div>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <div class="error" id="errorBox"></div>
+
+  <div class="result" id="result">
+    <div class="count-row">
+      <div class="count-number" id="countNumber">0</div>
+      <div class="count-label">beads counted</div>
+    </div>
+    <div class="note" id="noteBox"></div>
+    <canvas id="canvas"></canvas>
+    <div class="legend">
+      <span><span class="swatch" style="background:#8fae7a"></span> single bead</span>
+      <span><span class="swatch" style="background:#c4685a"></span> merged cluster, estimated</span>
+    </div>
+    <div class="controls">
+      <label>Sensitivity
+        <input type="range" id="threshSlider" min="-60" max="60" value="0">
+      </label>
+      <button class="reset" id="resetBtn">Try another photo</button>
+    </div>
+  </div>
+
+  <footer>Tip: if the count looks off, separate beads that are touching, or use the sensitivity slider to nudge how aggressively light is treated as "bead."</footer>
+</div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const dzLabel = document.getElementById('dzLabel');
+const resultBox = document.getElementById('result');
+const countNumber = document.getElementById('countNumber');
+const noteBox = document.getElementById('noteBox');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const errorBox = document.getElementById('errorBox');
+const threshSlider = document.getElementById('threshSlider');
+const resetBtn = document.getElementById('resetBtn');
+const beadString = document.getElementById('beadString');
+
+// signature bead-string: lights up sequentially while processing
+for(let i=0;i<14;i++){
+  const s = document.createElement('span');
+  beadString.appendChild(s);
+}
+let litIndex = 0;
+let litTimer = null;
+function startLitAnimation(){
+  const spans = beadString.querySelectorAll('span');
+  litTimer = setInterval(()=>{
+    spans.forEach(s=>s.classList.remove('lit'));
+    spans[litIndex % spans.length].classList.add('lit');
+    litIndex++;
+  }, 90);
+}
+function stopLitAnimation(){
+  clearInterval(litTimer);
+  beadString.querySelectorAll('span').forEach(s=>s.classList.remove('lit'));
+}
+
+let currentImage = null;
+
+['dragover','dragleave','drop'].forEach(evt=>{
+  dropzone.addEventListener(evt, e=>{
+    e.preventDefault();
+    if(evt==='dragover') dropzone.classList.add('drag');
+    if(evt==='dragleave'||evt==='drop') dropzone.classList.remove('drag');
+  });
+});
+dropzone.addEventListener('drop', e=>{
+  const file = e.dataTransfer.files[0];
+  if(file) handleFile(file);
+});
+dropzone.addEventListener('click', ()=> fileInput.click());
+dropzone.addEventListener('keydown', e=>{
+  if(e.key==='Enter' || e.key===' ') fileInput.click();
+});
+fileInput.addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(file) handleFile(file);
+});
+resetBtn.addEventListener('click', ()=>{
+  resultBox.classList.remove('show');
+  errorBox.classList.remove('show');
+  fileInput.value = '';
+  dzLabel.textContent = 'Drop a photo here, or click to choose one';
+});
+threshSlider.addEventListener('input', ()=>{
+  if(currentImage) processImage(currentImage, parseInt(threshSlider.value,10));
+});
+
+function handleFile(file){
+  if(!file.type.startsWith('image/')){
+    showError('That file doesn\'t look like an image. Try a JPG or PNG.');
+    return;
+  }
+  errorBox.classList.remove('show');
+  dzLabel.textContent = file.name;
+  const img = new Image();
+  img.onload = ()=>{
+    currentImage = img;
+    startLitAnimation();
+    setTimeout(()=>{ // tiny delay so the animation is visible even on fast images
+      processImage(img, parseInt(threshSlider.value,10));
+      stopLitAnimation();
+    }, 350);
+  };
+  img.onerror = ()=> showError('Could not read that image. Try a different file.');
+  img.src = URL.createObjectURL(file);
+}
+
+function showError(msg){
+  errorBox.textContent = msg;
+  errorBox.classList.add('show');
+  resultBox.classList.remove('show');
+}
+
+function processImage(img, sliderOffset){
+  // Scale down very large images for performance
+  const maxDim = 1000;
+  let w = img.naturalWidth, h = img.naturalHeight;
+  const scale = Math.min(1, maxDim / Math.max(w,h));
+  w = Math.round(w*scale); h = Math.round(h*scale);
+
+  canvas.width = w; canvas.height = h;
+  ctx.drawImage(img, 0, 0, w, h);
+  const imgData = ctx.getImageData(0,0,w,h);
+  const data = imgData.data;
+
+  // grayscale + histogram for an Otsu-ish auto threshold
+  const gray = new Uint8ClampedArray(w*h);
+  const hist = new Array(256).fill(0);
+  for(let i=0, p=0; i<data.length; i+=4, p++){
+    const g = Math.round(0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2]);
+    gray[p] = g;
+    hist[g]++;
+  }
+  const total = w*h;
+  let sum = 0;
+  for(let t=0;t<256;t++) sum += t*hist[t];
+  let sumB=0, wB=0, maxVar=0, threshold=128;
+  for(let t=0;t<256;t++){
+    wB += hist[t];
+    if(wB===0) continue;
+    const wF = total - wB;
+    if(wF===0) break;
+    sumB += t*hist[t];
+    const mB = sumB/wB;
+    const mF = (sum - sumB)/wF;
+    const between = wB*wF*(mB-mF)*(mB-mF);
+    if(between > maxVar){ maxVar = between; threshold = t; }
+  }
+  threshold = Math.max(1, Math.min(254, threshold - sliderOffset)); // slider biases threshold
+
+  // binary mask: 1 = bead
+  const mask = new Uint8Array(w*h);
+  for(let p=0;p<w*h;p++) mask[p] = gray[p] > threshold ? 1 : 0;
+
+  // simple erosion pass to knock out single-pixel noise (3x3 majority-ish)
+  const cleaned = new Uint8Array(w*h);
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const idx = y*w+x;
+      if(!mask[idx]){ cleaned[idx]=0; continue; }
+      let neighbors=0;
+      for(let dy=-1;dy<=1;dy++){
+        for(let dx=-1;dx<=1;dx++){
+          const ny=y+dy, nx=x+dx;
+          if(ny>=0&&ny<h&&nx>=0&&nx<w&&mask[ny*w+nx]) neighbors++;
+        }
+      }
+      cleaned[idx] = neighbors>=5 ? 1 : 0;
+    }
+  }
+
+  // connected components via BFS (8-connectivity)
+  const visited = new Uint8Array(w*h);
+  const components = []; // each: {area, minX,maxX,minY,maxY}
+  const qx = new Int32Array(w*h);
+  const qy = new Int32Array(w*h);
+
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const idx=y*w+x;
+      if(!cleaned[idx] || visited[idx]) continue;
+      let head=0, tail=0;
+      qx[tail]=x; qy[tail]=y; tail++;
+      visited[idx]=1;
+      let area=0, minX=x,maxX=x,minY=y,maxY=y;
+      while(head<tail){
+        const cx=qx[head], cy=qy[head]; head++;
+        area++;
+        if(cx<minX)minX=cx; if(cx>maxX)maxX=cx;
+        if(cy<minY)minY=cy; if(cy>maxY)maxY=cy;
+        for(let dy=-1;dy<=1;dy++){
+          for(let dx=-1;dx<=1;dx++){
+            if(dx===0&&dy===0) continue;
+            const nx=cx+dx, ny=cy+dy;
+            if(nx<0||nx>=w||ny<0||ny>=h) continue;
+            const nidx=ny*w+nx;
+            if(cleaned[nidx] && !visited[nidx]){
+              visited[nidx]=1;
+              qx[tail]=nx; qy[tail]=ny; tail++;
+            }
+          }
+        }
+      }
+      components.push({area, minX,maxX,minY,maxY});
+    }
+  }
+
+  if(components.length===0){
+    showError('No beads detected. Try better lighting/contrast, or use the sensitivity slider after a first attempt.');
+    return;
+  }
+
+  const areas = components.map(c=>c.area).sort((a,b)=>a-b);
+  const median = areas[Math.floor(areas.length/2)];
+  const minArea = median*0.22;
+  const maxArea = median*1.8;
+
+  let count = 0;
+  let merged = 0;
+  ctx.lineWidth = Math.max(1, w/500);
+
+  for(const c of components){
+    if(c.area < minArea) continue; // noise speck
+    const bw = c.maxX-c.minX+1, bh = c.maxY-c.minY+1;
+    if(c.area > maxArea){
+      const est = Math.max(1, Math.round(c.area/median));
+      count += est;
+      merged++;
+      ctx.strokeStyle = '#c4685a';
+      ctx.strokeRect(c.minX, c.minY, bw, bh);
+      ctx.fillStyle = '#c4685a';
+      ctx.font = `${Math.max(10,w/60)}px monospace`;
+      ctx.fillText('x'+est, c.minX, c.minY-3);
+    } else {
+      count++;
+      ctx.strokeStyle = '#8fae7a';
+      ctx.strokeRect(c.minX, c.minY, bw, bh);
+    }
+  }
+
+  countNumber.textContent = count;
+  noteBox.innerHTML = merged > 0
+    ? `<strong>${merged} cluster${merged>1?'s':''}</strong> looked like multiple touching beads — counted by estimating from typical bead size. Separate beads more if this seems off.`
+    : `Each box below is one bead the tool found. Check the image against the actual photo.`;
+  resultBox.classList.add('show');
+}
+
+// --- PWA: service worker + install prompt ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+
+let deferredInstallPrompt = null;
+const installBtn = document.getElementById('installBtn');
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (installBtn) installBtn.style.display = 'inline-flex';
+});
+
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    installBtn.style.display = 'none';
+  });
+}
+
+window.addEventListener('appinstalled', () => {
+  if (installBtn) installBtn.style.display = 'none';
+});
+</script>
+</body>
+</html>
