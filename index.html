@@ -325,7 +325,7 @@
       <canvas id="canvas"></canvas>
       <div class="overlay" id="overlay"></div>
     </div>
-    <p class="correct-hint">Tap a box to remove it · use −/+ on a red cluster to set its real count · tap empty space to add a missed bead</p>
+    <p class="correct-hint">Tap a box to show its −/+ controls · tap −/+ to fix the count or remove it · tap empty space to add a missed bead</p>
     <div class="legend">
       <span><span class="swatch" style="background:#8fae7a"></span> single bead</span>
       <span><span class="swatch" style="background:#c4685a"></span> merged cluster, estimated</span>
@@ -591,9 +591,9 @@ function updateCountAndNote(){
     note += `<strong>${manualActive}</strong> added by you. `;
   }
   if(!note){
-    note = 'Each box is one bead the tool found. Tap a box to remove it, use −/+ on red clusters to fix the count, or tap empty space to add one it missed.';
+    note = 'Each box is one bead the tool found. Tap a box to show its controls, then use −/+ to fix the count, remove it, or tap empty space to add a missed bead.';
   } else {
-    note += 'Use −/+ on a cluster, tap a box to remove it, or tap empty space to add one.';
+    note += 'Tap a box for controls, or tap empty space to add one.';
   }
   noteBox.innerHTML = note;
 }
@@ -608,13 +608,15 @@ function renderOverlay(){
     div.style.width = (b.w/imageW*100) + '%';
     div.style.height = (b.h/imageH*100) + '%';
 
-    if(b.type==='merged'){
-      if(b.origEst === undefined) b.origEst = b.est;
-      const isEdited = b.est !== b.origEst;
-      div.className += isEdited ? ' edited' : '';
+    if(b.origEst === undefined) b.origEst = b.est;
+    const isEdited = b.est !== b.origEst;
+    div.className += isEdited ? ' edited' : '';
+
+    const showStepper = b.selected || b.est !== 1;
+    if(showStepper){
       const stepper = document.createElement('div');
       stepper.className = 'stepper';
-      stepper.innerHTML = `<button class="step-btn minus" type="button">−</button><span class="step-count">${b.est}</span><button class="step-btn plus" type="button">+</button>`;
+      stepper.innerHTML = `<button class="step-btn minus" type="button">−</button><span class="step-count"${b.est===1 ? ' style="display:none;"' : ''}>${b.est}</span><button class="step-btn plus" type="button">+</button>`;
       stepper.querySelector('.minus').addEventListener('click', (e)=>{
         e.stopPropagation();
         b.est = Math.max(0, b.est - 1);
@@ -628,26 +630,26 @@ function renderOverlay(){
         renderOverlay();
       });
       div.appendChild(stepper);
-      // box itself toggles fully off/on (skips straight to 0 or restores previous estimate)
-      div.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        if(b.removed){
-          b.removed = false;
-          if(b.est === 0) b.est = b.prevEst || b.origEst || 1;
-        } else {
-          b.prevEst = b.est;
-          b.removed = true;
-          b.est = 0;
-        }
-        renderOverlay();
-      });
-    } else {
-      div.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        b.removed = !b.removed;
-        renderOverlay();
-      });
     }
+
+    // tapping the box selects it (revealing the stepper); tapping a selected
+    // box with count 1 again deselects and hides it
+    div.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      if(b.removed){
+        b.removed = false;
+        b.selected = true;
+        if(b.est === 0) b.est = b.prevEst || b.origEst || 1;
+      } else if(b.est === 1 && !b.selected){
+        b.selected = true;
+      } else if(b.est === 1 && b.selected){
+        b.selected = false;
+      } else {
+        b.selected = !b.selected;
+      }
+      renderOverlay();
+    });
+
 
     overlay.appendChild(div);
   }
