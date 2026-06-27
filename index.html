@@ -80,7 +80,6 @@
   }
   .dropzone input{ display:none; }
 
-  /* the signature element: a string of beads that fills in as a stand-in progress/identity mark */
   .bead-string{
     display:flex;
     justify-content:center;
@@ -138,11 +137,59 @@
   }
   .image-stage{
     position:relative;
-    width:100%;
+    display:inline-block;
     line-height:0;
   }
   .image-stage canvas{
     pointer-events:none;
+  }
+  .zoom-viewport{
+    overflow:auto;
+    max-height:65vh;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background:#0f0d0a;
+  }
+  .zoom-viewport .image-stage{
+    border-radius:0;
+  }
+  .zoom-viewport canvas{
+    border-radius:0;
+    border:none;
+  }
+  .zoom-controls{
+    display:flex;
+    align-items:center;
+    gap:0.5rem;
+    margin-bottom:0.6rem;
+  }
+  .zoom-btn{
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.9rem;
+    color:var(--ink);
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    border-radius:6px;
+    width:28px;
+    height:28px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .zoom-btn:hover{ border-color:var(--bead); }
+  .zoom-btn.reset-zoom{
+    width:auto;
+    padding:0 0.6rem;
+    font-family:'Inter',sans-serif;
+    font-size:0.78rem;
+  }
+  .zoom-level{
+    font-family:'JetBrains Mono', monospace;
+    font-size:0.8rem;
+    color:var(--ink-dim);
+    min-width:3.4em;
+    text-align:center;
   }
   .overlay{
     position:absolute;
@@ -157,12 +204,43 @@
     box-sizing:border-box;
     transition:opacity .15s, transform .1s;
   }
+  .bead-box.single{
+    border:none;
+  }
+  .bead-box.single::before{
+    content:'';
+    position:absolute;
+    top:50%; left:50%;
+    width:44%; height:44%;
+    transform:translate(-50%,-50%);
+    background:#5CFF5C;
+    border-radius:50%;
+    box-shadow:0 0 0 1.5px rgba(0,0,0,0.55), 0 0 6px rgba(92,255,92,0.85);
+  }
+  .bead-box.single.removed::before{
+    background:#5c4d28;
+  }
+  .bead-box.manual{
+    border:none;
+  }
+  .bead-box.manual::before{
+    content:'';
+    position:absolute;
+    top:50%; left:50%;
+    width:44%; height:44%;
+    transform:translate(-50%,-50%);
+    background:#5FA8FF;
+    border-radius:50%;
+    box-shadow:0 0 0 1.5px rgba(0,0,0,0.55), 0 0 6px rgba(95,168,255,0.85);
+  }
+  .bead-box.manual.removed::before{
+    background:#5c4d28;
+  }
   .bead-box:hover{
     transform:scale(1.08);
     z-index:2;
   }
   .bead-box.merged{ border-color:#c4685a; }
-  .bead-box.manual{ border-color:#5b8fc7; border-style:dashed; }
   .bead-box.removed{
     opacity:0.25;
     border-style:dotted;
@@ -192,6 +270,7 @@
   }
   .bead-box.edited .stepper{ border-color:#5b8fc7; }
   .bead-box.edited{ border-color:#5b8fc7; }
+  .bead-box.single.edited::before{ background:#5FA8FF; box-shadow:0 0 0 1.5px rgba(0,0,0,0.55), 0 0 6px rgba(95,168,255,0.85); }
   .step-btn{
     font-family:'JetBrains Mono', monospace;
     font-size:0.55rem;
@@ -203,6 +282,10 @@
     padding:1px 2px;
   }
   .step-btn:hover{ color:#fff; }
+  .step-btn.del{
+    color:#c4685a;
+  }
+  .step-btn.del:hover{ color:#fff; }
   .step-count{
     font-family:'JetBrains Mono', monospace;
     font-size:0.52rem;
@@ -233,6 +316,18 @@
   .controls input[type=range]{
     width:140px;
     accent-color:var(--bead);
+  }
+  .toggle-label{
+    cursor:pointer;
+  }
+  .toggle-label input[type=checkbox]{
+    accent-color:var(--bead);
+    width:14px;
+    height:14px;
+    cursor:pointer;
+  }
+  .overlay.hidden-boxes .bead-box{
+    display:none;
   }
   button.reset{
     font-family:'Inter',sans-serif;
@@ -303,13 +398,13 @@
   <div class="bead-string" id="beadString" aria-hidden="true"></div>
 
   <h1>Count your <span class="accent">beads</span>,<br>not your patience.</h1>
-  <p class="sub">Spread them on a dark surface, photograph from above, and drop the image below. Counting happens right in your browser — nothing is uploaded anywhere.</p>
+  <p class="sub">Spread out or piled up, doesn't matter. Photograph from above and drop the image below — counting happens right in your browser, nothing is uploaded anywhere.</p>
 
   <button id="installBtn" class="install-btn" style="display:none;">Add to home screen</button>
 
   <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload a photo of beads">
     <div class="label" id="dzLabel">Drop a photo here, or click to choose one</div>
-    <div class="hint">JPG or PNG · white/light beads on a dark background work best</div>
+    <div class="hint">JPG or PNG · a dense pile works fine, beads may touch each other</div>
     <input type="file" id="fileInput" accept="image/*">
   </div>
 
@@ -321,25 +416,33 @@
       <div class="count-label">beads counted</div>
     </div>
     <div class="note" id="noteBox"></div>
-    <div class="image-stage" id="imageStage">
-      <canvas id="canvas"></canvas>
-      <div class="overlay" id="overlay"></div>
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="zoomOutBtn" type="button" title="Zoom out">−</button>
+      <span class="zoom-level" id="zoomLevel">100%</span>
+      <button class="zoom-btn" id="zoomInBtn" type="button" title="Zoom in">+</button>
+      <button class="zoom-btn reset-zoom" id="zoomResetBtn" type="button" title="Reset zoom">Reset</button>
+    </div>
+    <div class="zoom-viewport" id="zoomViewport">
+      <div class="image-stage" id="imageStage">
+        <canvas id="canvas"></canvas>
+        <div class="overlay" id="overlay"></div>
+      </div>
     </div>
     <p class="correct-hint">Tap a box to show its −/+ controls · tap −/+ to fix the count or remove it · tap empty space to add a missed bead</p>
     <div class="legend">
-      <span><span class="swatch" style="background:#8fae7a"></span> single bead</span>
-      <span><span class="swatch" style="background:#c4685a"></span> merged cluster, estimated</span>
-      <span><span class="swatch" style="background:#5b8fc7"></span> added by you</span>
+      <span><span class="swatch" style="background:#7CFB7C"></span> detected bead</span>
+      <span><span class="swatch" style="background:#5FA8FF"></span> edited / added by you</span>
     </div>
     <div class="controls">
       <label>Sensitivity
         <input type="range" id="threshSlider" min="-60" max="60" value="0">
       </label>
+      <label class="toggle-label"><input type="checkbox" id="toggleOverlay" checked> Show boxes</label>
       <button class="reset" id="resetBtn">Try another photo</button>
     </div>
   </div>
 
-  <footer>Tip: if the count looks off, separate beads that are touching, or use the sensitivity slider to nudge how aggressively light is treated as "bead."</footer>
+  <footer>Beads can touch — the tool splits piles using each bead's round shape. If a tight knot of beads gets under- or over-counted, zoom in and correct it with the −/✕/+ controls.</footer>
 </div>
 
 <script>
@@ -358,7 +461,6 @@ const threshSlider = document.getElementById('threshSlider');
 const resetBtn = document.getElementById('resetBtn');
 const beadString = document.getElementById('beadString');
 
-// signature bead-string: lights up sequentially while processing
 for(let i=0;i<14;i++){
   const s = document.createElement('span');
   beadString.appendChild(s);
@@ -409,9 +511,44 @@ threshSlider.addEventListener('input', ()=>{
   if(currentImage) processImage(currentImage, parseInt(threshSlider.value,10));
 });
 
+const toggleOverlay = document.getElementById('toggleOverlay');
+toggleOverlay.addEventListener('change', ()=>{
+  overlay.classList.toggle('hidden-boxes', !toggleOverlay.checked);
+});
+
+// --- Zoom: scales the canvas/overlay width; the zoom-viewport scrolls.
+// Overlay click math reads getBoundingClientRect(), which already reflects
+// the current zoomed/scrolled size and position, so no coordinate-mapping
+// changes are needed elsewhere for clicks to keep landing correctly.
+const zoomViewport = document.getElementById('zoomViewport');
+const zoomLevelLabel = document.getElementById('zoomLevel');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomResetBtn = document.getElementById('zoomResetBtn');
+let zoomPct = 100;
+let baseDisplayWidth = 0;
+const ZOOM_MIN = 100, ZOOM_MAX = 600, ZOOM_STEP = 25;
+
+function applyZoom(){
+  zoomPct = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomPct));
+  if(baseDisplayWidth){
+    canvas.style.width = Math.round(baseDisplayWidth * zoomPct/100) + 'px';
+  }
+  zoomLevelLabel.textContent = zoomPct + '%';
+}
+zoomInBtn.addEventListener('click', ()=>{ zoomPct += ZOOM_STEP; applyZoom(); });
+zoomOutBtn.addEventListener('click', ()=>{ zoomPct -= ZOOM_STEP; applyZoom(); });
+zoomResetBtn.addEventListener('click', ()=>{ zoomPct = 100; applyZoom(); zoomViewport.scrollLeft = 0; zoomViewport.scrollTop = 0; });
+zoomViewport.addEventListener('wheel', (e)=>{
+  if(!e.ctrlKey && !e.metaKey) return; // require ctrl/cmd+scroll so normal scrolling still works
+  e.preventDefault();
+  zoomPct += (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+  applyZoom();
+}, { passive:false });
+
 function handleFile(file){
   if(!file.type.startsWith('image/')){
-    showError('That file doesn\'t look like an image. Try a JPG or PNG.');
+    showError("That file doesn't look like an image. Try a JPG or PNG.");
     return;
   }
   errorBox.classList.remove('show');
@@ -420,7 +557,7 @@ function handleFile(file){
   img.onload = ()=>{
     currentImage = img;
     startLitAnimation();
-    setTimeout(()=>{ // tiny delay so the animation is visible even on fast images
+    setTimeout(()=>{
       processImage(img, parseInt(threshSlider.value,10));
       stopLitAnimation();
     }, 350);
@@ -435,8 +572,42 @@ function showError(msg){
   resultBox.classList.remove('show');
 }
 
+// Two-pass chamfer distance transform over the WHOLE mask (not per-blob).
+// Every pixel gets its approximate distance to the nearest background pixel.
+// Near the center of any round bead — touching others or not — this value
+// peaks; that's what makes "find the bumps" work the same everywhere.
+function distanceTransform(mask, w, h){
+  const INF = 1e6;
+  const dist = new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) dist[i] = mask[i] ? INF : 0;
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=y*w+x;
+      if(!mask[i]) continue;
+      let d = dist[i];
+      if(x>0) d = Math.min(d, dist[i-1]+1);
+      if(y>0) d = Math.min(d, dist[i-w]+1);
+      if(x>0&&y>0) d = Math.min(d, dist[i-w-1]+1.4142);
+      if(x<w-1&&y>0) d = Math.min(d, dist[i-w+1]+1.4142);
+      dist[i] = d;
+    }
+  }
+  for(let y=h-1;y>=0;y--){
+    for(let x=w-1;x>=0;x--){
+      const i=y*w+x;
+      if(!mask[i]) continue;
+      let d = dist[i];
+      if(x<w-1) d = Math.min(d, dist[i+1]+1);
+      if(y<h-1) d = Math.min(d, dist[i+w]+1);
+      if(x<w-1&&y<h-1) d = Math.min(d, dist[i+w+1]+1.4142);
+      if(x>0&&y<h-1) d = Math.min(d, dist[i+w-1]+1.4142);
+      dist[i] = d;
+    }
+  }
+  return dist;
+}
+
 function processImage(img, sliderOffset){
-  // Scale down very large images for performance
   const maxDim = 1000;
   let w = img.naturalWidth, h = img.naturalHeight;
   const scale = Math.min(1, maxDim / Math.max(w,h));
@@ -447,7 +618,6 @@ function processImage(img, sliderOffset){
   const imgData = ctx.getImageData(0,0,w,h);
   const data = imgData.data;
 
-  // grayscale + histogram for an Otsu-ish auto threshold
   const gray = new Uint8ClampedArray(w*h);
   const hist = new Array(256).fill(0);
   for(let i=0, p=0; i<data.length; i+=4, p++){
@@ -470,13 +640,11 @@ function processImage(img, sliderOffset){
     const between = wB*wF*(mB-mF)*(mB-mF);
     if(between > maxVar){ maxVar = between; threshold = t; }
   }
-  threshold = Math.max(1, Math.min(254, threshold - sliderOffset)); // slider biases threshold
+  threshold = Math.max(1, Math.min(254, threshold - sliderOffset));
 
-  // binary mask: 1 = bead
   const mask = new Uint8Array(w*h);
   for(let p=0;p<w*h;p++) mask[p] = gray[p] > threshold ? 1 : 0;
 
-  // simple erosion pass to knock out single-pixel noise (3x3 majority-ish)
   const cleaned = new Uint8Array(w*h);
   for(let y=0;y<h;y++){
     for(let x=0;x<w;x++){
@@ -493,75 +661,85 @@ function processImage(img, sliderOffset){
     }
   }
 
-  // connected components via BFS (8-connectivity)
-  const visited = new Uint8Array(w*h);
-  const components = []; // each: {area, minX,maxX,minY,maxY}
-  const qx = new Int32Array(w*h);
-  const qy = new Int32Array(w*h);
-
-  for(let y=0;y<h;y++){
-    for(let x=0;x<w;x++){
-      const idx=y*w+x;
-      if(!cleaned[idx] || visited[idx]) continue;
-      let head=0, tail=0;
-      qx[tail]=x; qy[tail]=y; tail++;
-      visited[idx]=1;
-      let area=0, minX=x,maxX=x,minY=y,maxY=y;
-      while(head<tail){
-        const cx=qx[head], cy=qy[head]; head++;
-        area++;
-        if(cx<minX)minX=cx; if(cx>maxX)maxX=cx;
-        if(cy<minY)minY=cy; if(cy>maxY)maxY=cy;
-        for(let dy=-1;dy<=1;dy++){
-          for(let dx=-1;dx<=1;dx++){
-            if(dx===0&&dy===0) continue;
-            const nx=cx+dx, ny=cy+dy;
-            if(nx<0||nx>=w||ny<0||ny>=h) continue;
-            const nidx=ny*w+nx;
-            if(cleaned[nidx] && !visited[nidx]){
-              visited[nidx]=1;
-              qx[tail]=nx; qy[tail]=ny; tail++;
-            }
-          }
-        }
-      }
-      components.push({area, minX,maxX,minY,maxY});
-    }
-  }
-
-  if(components.length===0){
+  let anyForeground = false;
+  for(let i=0;i<w*h;i++){ if(cleaned[i]){ anyForeground=true; break; } }
+  if(!anyForeground){
     showError('No beads detected. Try better lighting/contrast, or use the sensitivity slider after a first attempt.');
     return;
   }
 
-  const areas = components.map(c=>c.area).sort((a,b)=>a-b);
-  const median = areas[Math.floor(areas.length/2)];
-  const minArea = median*0.22;
-  const maxArea = median*1.8;
-  medianBeadSide = Math.sqrt(median); // used later for manually-added boxes
+  const dist = distanceTransform(cleaned, w, h);
 
-  beadBoxes = [];
-  let boxId = 0;
-  for(const c of components){
-    if(c.area < minArea) continue; // noise speck
-    const bw = c.maxX-c.minX+1, bh = c.maxY-c.minY+1;
-    if(c.area > maxArea){
-      const est = Math.max(1, Math.round(c.area/median));
-      beadBoxes.push({
-        id: boxId++, type:'merged', est, removed:false,
-        x:c.minX, y:c.minY, w:bw, h:bh
-      });
-    } else {
-      beadBoxes.push({
-        id: boxId++, type:'single', est:1, removed:false,
-        x:c.minX, y:c.minY, w:bw, h:bh
-      });
+  // Pass 1 — cheap, rough local maxima (3x3 window). This will over-detect
+  // (plateaus/noise produce duplicates near a true center), but that's fine:
+  // we only use it to learn the radius and as raw candidates for pass 2.
+  const rawPeaks = [];
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=y*w+x;
+      if(!cleaned[i] || dist[i] < 1.5) continue;
+      let isMax = true;
+      for(let dy=-1;dy<=1 && isMax;dy++){
+        for(let dx=-1;dx<=1;dx++){
+          if(dx===0&&dy===0) continue;
+          const nx=x+dx, ny=y+dy;
+          if(nx<0||nx>=w||ny<0||ny>=h) continue;
+          if(dist[ny*w+nx] > dist[i]){ isMax=false; break; }
+        }
+      }
+      if(isMax) rawPeaks.push({x,y,val:dist[i]});
     }
   }
 
+  if(rawPeaks.length===0){
+    showError('No beads detected. Try better lighting/contrast, or use the sensitivity slider after a first attempt.');
+    return;
+  }
+
+  // Self-calibrate: "what does a single bead look like here?" — the median
+  // distance-to-edge value among raw peaks is a robust stand-in for a single
+  // bead's radius, learned straight from this photo instead of guessed.
+  const sortedVals = rawPeaks.map(p=>p.val).sort((a,b)=>a-b);
+  const refRadius = sortedVals[Math.floor(sortedVals.length/2)];
+
+  // Pass 2 — real selection: a peak only counts as a bead center if its bump
+  // is a reasonable fraction of a full bead's radius, and accepted peaks are
+  // greedily spaced apart by less than a full bead-diameter (so two beads
+  // that truly touch keep two centers) but more than plateau-noise spacing.
+  const minPeakVal = Math.max(1, refRadius*0.5);
+  const minPeakDist = Math.max(2, refRadius*1.3);
+
+  const candidates = rawPeaks.filter(p=>p.val>=minPeakVal).sort((a,b)=>b.val-a.val);
+  const accepted = [];
+  for(const p of candidates){
+    let ok = true;
+    for(const a of accepted){
+      const dx=p.x-a.x, dy=p.y-a.y;
+      if(Math.sqrt(dx*dx+dy*dy) < minPeakDist){ ok=false; break; }
+    }
+    if(ok) accepted.push(p);
+  }
+
+  medianBeadSide = refRadius*2;
+  const boxSide = Math.max(6, Math.round(refRadius*1.8));
+
+  beadBoxes = [];
+  let boxId = 0;
+  for(const p of accepted){
+    beadBoxes.push({
+      id: boxId++, type:'single', est:1, removed:false,
+      x: p.x - boxSide/2, y: p.y - boxSide/2, w: boxSide, h: boxSide
+    });
+  }
+
   imageW = w; imageH = h;
-  renderOverlay();
   resultBox.classList.add('show');
+  baseDisplayWidth = Math.min(canvas.width, zoomViewport.clientWidth || canvas.width);
+  zoomPct = 100;
+  applyZoom();
+  zoomViewport.scrollLeft = 0;
+  zoomViewport.scrollTop = 0;
+  renderOverlay();
 }
 
 let beadBoxes = [];
@@ -616,7 +794,7 @@ function renderOverlay(){
     if(showStepper){
       const stepper = document.createElement('div');
       stepper.className = 'stepper';
-      stepper.innerHTML = `<button class="step-btn minus" type="button">−</button><span class="step-count"${b.est===1 ? ' style="display:none;"' : ''}>${b.est}</span><button class="step-btn plus" type="button">+</button>`;
+      stepper.innerHTML = `<button class="step-btn minus" type="button">−</button><span class="step-count"${b.est===1 ? ' style="display:none;"' : ''}>${b.est}</span><button class="step-btn plus" type="button">+</button><button class="step-btn del" type="button" title="Remove this box entirely">✕</button>`;
       stepper.querySelector('.minus').addEventListener('click', (e)=>{
         e.stopPropagation();
         b.est = Math.max(0, b.est - 1);
@@ -629,11 +807,16 @@ function renderOverlay(){
         b.removed = false;
         renderOverlay();
       });
+      stepper.querySelector('.del').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        b.prevEst = b.est;
+        b.removed = true;
+        b.selected = false;
+        renderOverlay();
+      });
       div.appendChild(stepper);
     }
 
-    // tapping the box selects it (revealing the stepper); tapping a selected
-    // box with count 1 again deselects and hides it
     div.addEventListener('click', (e)=>{
       e.stopPropagation();
       if(b.removed){
@@ -650,14 +833,12 @@ function renderOverlay(){
       renderOverlay();
     });
 
-
     overlay.appendChild(div);
   }
   updateCountAndNote();
 }
 
 overlay.addEventListener('click', (e)=>{
-  // only fires if the click wasn't on a bead-box (those call stopPropagation)
   const rect = overlay.getBoundingClientRect();
   const px = (e.clientX - rect.left) / rect.width * imageW;
   const py = (e.clientY - rect.top) / rect.height * imageH;
@@ -669,7 +850,6 @@ overlay.addEventListener('click', (e)=>{
   renderOverlay();
 });
 
-// --- PWA: service worker + install prompt ---
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(()=>{});
